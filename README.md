@@ -9,10 +9,10 @@ A simple web server
     
 ## Use
 
-###Server
+### Server
 
     ./web_server port
     
-###Client
+### Client
 
 You can use the browser to visit http://[server_address]:[port]/
