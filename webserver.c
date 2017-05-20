@@ -21,22 +21,26 @@ void dynamic_serve(int fd, char *filename, char *cgiargs);
 
 int main(int argc, char* argv[]) 
 {
+	//判断参数
     if (argc != 2) 
     {
         perror("usage: webserver <port>");
         exit(1);
     }
+    //分配套接字
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd == -1) 
     {
         perror("Can't allocate sockfd");
         exit(1);
     }
+    //设置服务器套接字地址
     struct sockaddr_in clientaddr, serveraddr;
     memset(&serveraddr, 0, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
     serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
     serveraddr.sin_port = htons(atoi(argv[1]));
+    //绑定并监听
     if (bind(sockfd, (const struct sockaddr *) &serveraddr, sizeof(serveraddr)) == -1)
     {
         perror("Bind Error");
@@ -50,6 +54,7 @@ int main(int argc, char* argv[])
     while (true) 
     {
         socklen_t clientlen = sizeof(clientaddr);
+        //建立连接
         int connfd = accept(sockfd, (struct sockaddr *) &clientaddr, &clientlen);
         if (connfd == -1)
         {
@@ -57,6 +62,7 @@ int main(int argc, char* argv[])
             exit(1);
         }
         printf("Accepted connection from (%s:%s)\n", inet_ntoa(clientaddr.sin_addr), argv[1]);
+        //处理连接请求
         work(connfd);
         close(connfd);
     }
@@ -66,6 +72,7 @@ void work(int fd)
     char buf[MAXLINE] = {0};
     rio_t rio;
     rio_readinitb(&rio, fd);
+    //读取并解析请求行
     if (rio_readlineb(&rio, buf, MAXLINE) == -1) 
     {
         perror("Read error");
@@ -80,12 +87,13 @@ void work(int fd)
         client_error(fd, method, "501", "Not implemented", "The server does not implement this method");
         return;
     }
+    //读取并忽略请求报头
     if (rio_readlineb(rio, buf, MAXLINE) == -1) 
     {
         perror("Read error");
         exit(1);
     }
-    while (strcmp(buf, "\r\n")) 
+    while (strcmp(buf, "\r\n")) //判断是否是报头最后的空行
     {
         if (rio_readlineb(rio, buf, MAXLINE) == -1) 
         {
@@ -94,6 +102,7 @@ void work(int fd)
         }
         printf("%s", buf);
     }
+    //将URI解析为文件名和参数串并判断提供何种内容
     char filename[MAXLINE] = {0}, cgiargs[MAXLINE] = {0};
     bool is_static = analyse_uri(uri, filename, cgiargs);
     struct stat sbuf;
@@ -111,7 +120,7 @@ void work(int fd)
         }
         static_serve(fd, filename, sbuf.st_size);
     }
-    else 
+    else //动态内容
     {
         if (!(S_ISREG(sbuf.st_mode)) && !(S_IXUSR & sbuf.st_mode)) 
         {
@@ -121,15 +130,11 @@ void work(int fd)
         dynamic_serve(fd, filename, cgiargs);
     }
 }
+//发送HTTP响应来解释错误，将状态码和状态消息发送给客户
 void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) 
 {
     char buf[MAXLINE] = {0}, body[MAXLINE] = {0};
-    sprintf(body, "<html><title>Server Error</title>");
-    sprintf(body, "%s<body bgcolor=""ffffff"">\r\n", body);
-    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
-    sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
-    sprintf(body, "%s<hr><em>The Web Server</em></body></html>\r\n", body);
-    sprintf(buf, "HTTP/1.0 %s %s \r\n", errnum, shortmsg);
+    //输出HTTP响应
     if (rio_writen(fd, buf, strlen(buf)) == -1) 
     {
         perror("Write error");
@@ -147,6 +152,13 @@ void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longms
         perror("Write error");
         exit(-1);
     }
+    //建立并输出HTTP响应体
+    sprintf(body, "<html><title>Server Error</title>");
+    sprintf(body, "%s<body bgcolor=""ffffff"">\r\n", body);
+    sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
+    sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
+    sprintf(body, "%s<hr><em>The Web Server</em></body></html>\r\n", body);
+    sprintf(buf, "HTTP/1.0 %s %s \r\n", errnum, shortmsg);
     if (rio_writen(fd, body, strlen(body)) == -1) 
     {
         perror("Write error");
@@ -155,34 +167,36 @@ void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longms
 }
 bool analyse_uri(char *uri, char *filename, char *cgiargs) 
 {
-    if (!strstr(uri, "cgi")) 
+	//默认可执行文件主目录为cgi
+    if (!strstr(uri, "cgi")) //静态内容
     {
-        strcpy(cgiargs, "");
+        strcpy(cgiargs, ""); //清空参数字符串
         strcpy(filename, ".");
-        strcat(filename, uri);
-        if (uri[strlen(uri) - 1] == '/')
+        strcat(filename, uri); //将uri转为相对路径名
+        if (uri[strlen(uri) - 1] == '/') //如果uri以/结尾，则将默认文件名加在后面
             strcat(filename, "index.html");
         return true;
     }
     else 
     {
-        char *ptr = index(uri, '?');
+        char *ptr = index(uri, '?'); //找到文件名与参数字符串分隔符
         if (ptr) 
         {
-            strcpy(cgiargs, ptr + 1);
+            strcpy(cgiargs, ptr + 1); //提前参数字符串
             *ptr = '\0';
         }
         else
             strcpy(cgiargs, "");
         strcpy(filename, ".");
-        strcat(filename, uri);
+        strcat(filename, uri);	//将uri剩下的部分转为相对路径名
         return false;
     }
 }
 void static_serve(int fd, char *filename, int filesize) 
 {
     char buf[MAXLINE] = {0}, filetype[MAXLINE] = {0};
-    get_filetype(filename, filetype);
+    get_filetype(filename, filetype); //获得文件类型
+    //给客户端发送HTTP响应头
     sprintf(buf, "HTTP/1.0 200  OK\r\n");
     sprintf(buf, "%sServer: The Web Server\r\n", buf);
     sprintf(buf, "%sConnection: close\r\n", buf);
@@ -195,19 +209,28 @@ void static_serve(int fd, char *filename, int filesize)
     }
     puts("Response headers:");
     printf("%s", buf);
+    //打开请求文件
     int srcfd = open(filename, O_RDONLY, 0);
     if (srcfd < 0 ) 
     {
         perror("Can't open the file");
         exit(1);
     }
+    //将请求文件内容映射到一个虚拟内存空间
     char *srcp = mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+    if (srcp == ((void *) -1)
+    {
+    	perror("mmap error");
+    	exit(1);
+    }
     close(srcfd);
+    //将内容发送到客户端
     if (rio_writen(fd, srcp, filesize) == -1) 
     {
         perror("Write error");
         exit(1);
     }
+    //释放虚拟内存
     munmap(srcp, filesize);
 }
 void get_filetype(char *filename, char *filetype) 
@@ -226,6 +249,7 @@ void get_filetype(char *filename, char *filetype)
 void dynamic_serve(int fd, char *filename, char *cgiargs) 
 {
     char buf[MAXLINE] = {0}, *emptylist[] = {NULL};
+    //向客户端发送响应行
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     if (rio_writen(fd, buf, strlen(buf)) == -1) 
     {
@@ -238,11 +262,11 @@ void dynamic_serve(int fd, char *filename, char *cgiargs)
         perror("Write error");
         exit(1);
     }
-    if (fork() == 0) 
+    if (fork() == 0) //Child
     {
-        setenv("QUERY_STRING", cgiargs, 1);
+        setenv("QUERY_STRING", cgiargs, 1); //用CGI参数初始化环境变量
         dup2(fd, STDOUT_FILENO);
-        execve(filename, emptylist, environ);
+        execve(filename, emptylist, environ); //执行CGI程序
     }
-    wait(NULL);
+    wait(NULL); //父进程阻塞
 }
