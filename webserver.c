@@ -63,7 +63,7 @@ int main(int argc, char* argv[])
 }
 void work(int fd) 
 {
-    char buf[MAXLINE];
+    char buf[MAXLINE] = {0};
     rio_t rio;
     rio_readinitb(&rio, fd);
     if (rio_readlineb(&rio, buf, MAXLINE) == -1) 
@@ -80,7 +80,6 @@ void work(int fd)
         client_error(fd, method, "501", "Not implemented", "The server does not implement this method");
         return;
     }
-    char buf[MAXLINE];
     if (rio_readlineb(rio, buf, MAXLINE) == -1) 
     {
         perror("Read error");
@@ -95,7 +94,7 @@ void work(int fd)
         }
         printf("%s", buf);
     }
-    char filename[MAXLINE], cgiargs[MAXLINE];
+    char filename[MAXLINE] = {0}, cgiargs[MAXLINE] = {0};
     bool is_static = analyse_uri(uri, filename, cgiargs);
     struct stat sbuf;
     if (stat(filename, &sbuf) < 0) 
@@ -124,7 +123,7 @@ void work(int fd)
 }
 void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) 
 {
-    char buf[MAXLINE], body[MAXLINE];
+    char buf[MAXLINE] = {0}, body[MAXLINE] = {0};
     sprintf(body, "<html><title>Server Error</title>");
     sprintf(body, "%s<body bgcolor=""ffffff"">\r\n", body);
     sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
@@ -162,7 +161,7 @@ bool analyse_uri(char *uri, char *filename, char *cgiargs)
         strcpy(filename, ".");
         strcat(filename, uri);
         if (uri[strlen(uri) - 1] == '/')
-            strcat(filename, "home.html");
+            strcat(filename, "index.html");
         return true;
     }
     else 
@@ -182,7 +181,7 @@ bool analyse_uri(char *uri, char *filename, char *cgiargs)
 }
 void static_serve(int fd, char *filename, int filesize) 
 {
-    char buf[MAXLINE], filetype[MAXLINE];
+    char buf[MAXLINE] = {0}, filetype[MAXLINE] = {0};
     get_filetype(filename, filetype);
     sprintf(buf, "HTTP/1.0 200  OK\r\n");
     sprintf(buf, "%sServer: The Web Server\r\n", buf);
@@ -226,7 +225,7 @@ void get_filetype(char *filename, char *filetype)
 }
 void dynamic_serve(int fd, char *filename, char *cgiargs) 
 {
-    char buf[MAXLINE], *emptylist[] = {NULL};
+    char buf[MAXLINE] = {0}, *emptylist[] = {NULL};
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     if (rio_writen(fd, buf, strlen(buf)) == -1) 
     {
