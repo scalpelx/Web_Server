@@ -1,3 +1,7 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <errno.h>
+#include <memory.h>
 #include "common.h"
 
 ssize_t rio_writen(int fd, void *usrbuf, size_t n)
