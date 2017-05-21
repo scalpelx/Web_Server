@@ -14,6 +14,8 @@
 
 void work(int fd);
 void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+void read_get_requesthdrs(rio_t *rp);
+void read_post_requesthdrs(rio_t *rp, char *content);
 bool analyse_uri(char *uri, char *filename, char *cgiargs);
 void static_serve(int fd, char *filename, int filesize);
 void get_filetype(char *filename, char *filetype);
@@ -21,7 +23,7 @@ void dynamic_serve(int fd, char *filename, char *cgiargs);
 
 int main(int argc, char* argv[]) 
 {
-	//判断参数
+    //判断参数
     if (argc != 2) 
     {
         perror("usage: webserver <port>");
@@ -82,40 +84,38 @@ void work(int fd)
     puts(buf);
     char method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     sscanf(buf, "%s %s %s", method, uri, version);
-    if (strcasecmp(method, "GET")) 
+    //判断请求方式
+    bool isGET = !strcasecmp(method, "GET"), isPOST = !strcasecmp(method, "POST");
+    if (!isGET && !isPOST) 
     {
-        client_error(fd, method, "501", "Not implemented", "The server does not implement this method");
+        print_error(fd, method, "501", "Not implemented", "The server does not implement this method");
         return;
     }
-    //读取并忽略请求报头
-    if (rio_readlineb(rio, buf, MAXLINE) == -1) 
-    {
-        perror("Read error");
-        exit(1);
-    }
-    while (strcmp(buf, "\r\n")) //判断是否是报头最后的空行
-    {
-        if (rio_readlineb(rio, buf, MAXLINE) == -1) 
-        {
-            perror("Read error");
-            exit(1);
-        }
-        printf("%s", buf);
-    }
+    //读取请求报头
+    char content[MAXLINE] = {0};
+    if (isGET)
+        read_get_requesthdrs(&rio);
+    else
+        read_post_requesthdrs(&rio, content);
     //将URI解析为文件名和参数串并判断提供何种内容
     char filename[MAXLINE] = {0}, cgiargs[MAXLINE] = {0};
     bool is_static = analyse_uri(uri, filename, cgiargs);
     struct stat sbuf;
     if (stat(filename, &sbuf) < 0) 
     {
-        client_error(fd, filename, "404", "Not found", "The server could not find this file");
+        print_error(fd, filename, "404", "Not found", "The server could not find this file");
         return;
     }
     if (is_static) 
     {
+        if (isPOST)
+        {
+            print_error(fd, filename, "405", "Method Not Allowed", "Request method POST is not allowed for the URL");
+            return;
+        }
         if (!(S_ISREG(sbuf.st_mode)) && !(S_IRUSR & sbuf.st_mode)) 
         {
-            client_error(fd, filename, "403", "Forbidden", "The server could not read this file");
+            print_error(fd, filename, "403", "Forbidden", "The server could not read this file");
             return;
         }
         static_serve(fd, filename, sbuf.st_size);
@@ -124,9 +124,11 @@ void work(int fd)
     {
         if (!(S_ISREG(sbuf.st_mode)) && !(S_IXUSR & sbuf.st_mode)) 
         {
-            client_error(fd, filename, "403", "Forbidden", "The server could not run the CGI program");
+            print_error(fd, filename, "403", "Forbidden", "The server could not run the CGI program");
             return;
         }
+        if (isPOST)
+            strcpy(cgiargs, content);
         dynamic_serve(fd, filename, cgiargs);
     }
 }
@@ -140,13 +142,13 @@ void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longms
         perror("Write error");
         exit(-1);
     }
-    sprintf(buf, "Content-type: text/html\r\n");
+    sprintf(buf, "Content-Type: text/html\r\n");
     if (rio_writen(fd, buf, strlen(buf)) == -1) 
     {
         perror("Write error");
         exit(-1);
     }
-    sprintf(buf, "Content-length: %d\r\n\r\n", strlen(body));
+    sprintf(buf, "Content-Length: %d\r\n\r\n", strlen(body));
     if (rio_writen(fd, buf, strlen(buf)) == -1) 
     {
         perror("Write error");
@@ -165,9 +167,59 @@ void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longms
         exit(-1);
     }
 }
+void read_get_requesthdrs(rio_t *rp) 
+{
+    char buf[MAXLINE];
+    if (rio_readlineb(rp, buf, MAXLINE) == -1) 
+    {
+        perror("Read error");
+        exit(1);
+    }
+    while (strcmp(buf, "\r\n")) 
+    {
+        if (rio_readlineb(rp, buf, MAXLINE) == -1) 
+        {
+            perror("Read error");
+            exit(1);
+        }
+        printf("%s", buf);
+    }
+}
+void read_post_requesthdrs(rio_t *rp, char *content)
+{
+    char buf[MAXLINE];
+    int contentlength = 0;
+    if (rio_readlineb(rp, buf, MAXLINE) == -1) 
+    {
+        perror("Read error");
+        exit(1);
+    }
+    while (strcmp(buf, "\r\n")) 
+    {
+        if (rio_readlineb(rp, buf, MAXLINE) == -1) 
+        {
+            perror("Read error");
+            exit(1);
+        }
+        printf("%s", buf);
+        if (strstr(buf, "Content-Length: ") == buf)
+            contentlength = atoi(buf + strlen("Content-Length: ")); //获得长度
+    }
+    //读入报文体
+    int n;
+    if ((n = rio_readnb(rp, content, contentlength)) != contentlength)
+    {
+        perror("Read POST content error");
+        if (n == -1)
+            exit(1);
+        contentlength = n;
+    }
+    content[contentlength] = '\0';
+    puts(content);
+}
 bool analyse_uri(char *uri, char *filename, char *cgiargs) 
 {
-	//默认可执行文件主目录为cgi
+    //默认可执行文件主目录为cgi
     if (!strstr(uri, "cgi")) //静态内容
     {
         strcpy(cgiargs, ""); //清空参数字符串
@@ -218,7 +270,7 @@ void static_serve(int fd, char *filename, int filesize)
     }
     //将请求文件内容映射到一个虚拟内存空间
     char *srcp = mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
-    if (srcp == ((void *) -1)
+    if (srcp == (void *)-1)
     {
     	perror("mmap error");
     	exit(1);

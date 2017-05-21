@@ -1,5 +1,15 @@
+#include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include "../common.h"
+
+int tonumber(char *s)
+{
+    int i = 0;
+    while (s[i] != '=') //POST: a=1&b=1
+        i++;
+    return atoi(s + i + 1);
+}
 
 int main() {
     int n1 = 0, n2 = 0;
@@ -8,8 +18,8 @@ int main() {
         p = strchr(buf, '&');
         strcpy(arg1, buf);
         strcpy(arg2, p + 1);
-        n1 = atoi(arg1);
-        n2 = atoi(arg2);
+        n1 = tonumber(arg1);
+        n2 = tonumber(arg2);
     }
     sprintf(content, "QUERY_STRING=%s", buf);
     sprintf(content, "<p>The answer is: %d + %d = %d\r\n<p>", n1, n2, n1 + n2);
