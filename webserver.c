@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdbool.h>
+#include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <string.h>
+#include <dirent.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -17,6 +19,7 @@ void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longms
 void read_get_requesthdrs(rio_t *rp);
 void read_post_requesthdrs(rio_t *rp, char *content);
 bool analyse_uri(char *uri, char *filename, char *cgiargs);
+void serve_dir(int fd,char *dirpath);
 void static_serve(int fd, char *filename, int filesize);
 void get_filetype(char *filename, char *filetype);
 void dynamic_serve(int fd, char *filename, char *cgiargs);
@@ -106,7 +109,9 @@ void work(int fd)
         print_error(fd, filename, "404", "Not found", "The server could not find this file");
         return;
     }
-    if (is_static) 
+    if(S_ISDIR(sbuf.st_mode))
+        serve_dir(fd, filename); //显示目录内容
+    else if (is_static) 
     {
         if (isPOST)
         {
@@ -148,7 +153,7 @@ void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longms
         perror("Write error");
         exit(-1);
     }
-    sprintf(buf, "Content-Length: %d\r\n\r\n", strlen(body));
+    sprintf(buf, "Content-Length: %lu\r\n\r\n", strlen(body));
     if (rio_writen(fd, buf, strlen(buf)) == -1) 
     {
         perror("Write error");
@@ -220,12 +225,12 @@ void read_post_requesthdrs(rio_t *rp, char *content)
 bool analyse_uri(char *uri, char *filename, char *cgiargs) 
 {
     //默认可执行文件主目录为cgi
-    if (!strstr(uri, "cgi")) //静态内容
+    if (!strstr(uri, "cgi") || !strstr(uri, "?")) //静态内容
     {
         strcpy(cgiargs, ""); //清空参数字符串
         strcpy(filename, ".");
         strcat(filename, uri); //将uri转为相对路径名
-        if (uri[strlen(uri) - 1] == '/') //如果uri以/结尾，则将默认文件名加在后面
+        if (strlen(uri) == 0 || (strlen(uri) == 1 && uri[0] == '/')) //如果uri以/结尾，则将默认文件名加在后面
             strcat(filename, "index.html");
         return true;
     }
@@ -243,6 +248,44 @@ bool analyse_uri(char *uri, char *filename, char *cgiargs)
         strcat(filename, uri);	//将uri剩下的部分转为相对路径名
         return false;
     }
+}
+void serve_dir(int fd, char *dirpath)
+{  
+    char *p = strrchr(dirpath, '/');
+    ++p;
+    char dir[MAXLINE] = {0};
+    strcpy(dir, p); //复制目录名
+    strcat(dir, "/");
+    DIR *dp;
+    if((dp = opendir(dirpath)) == NULL)
+    {
+        perror("Cann't open the dir");
+        exit(1);
+    }
+    char fbuf[MAXLINE] = {0};
+    sprintf(fbuf, "<html><title>Display directory content</title>");
+    sprintf(fbuf, "%s<body bgcolor=""ffffff"" font-family=Consolas><table cellspacing=""10"">\r\n", fbuf);
+    struct dirent *dirp;
+    while((dirp = readdir(dp)) != NULL) //遍历目录
+    {
+        if(!strcmp(dirp->d_name, ".") || !strcmp(dirp->d_name, ".."))
+            continue;
+        char filepath[MAXLINE] = {0};
+        sprintf(filepath, "%s/%s", dirpath, dirp->d_name);
+        struct stat sbuf;
+        stat(filepath, &sbuf);
+        sprintf(fbuf,"%s<tr><td><a href=%s%s>%s</a></td><td>%ld</td><td>%s</td></tr>\r\n",
+                fbuf, dir, dirp->d_name, dirp->d_name, sbuf.st_size, ctime(&sbuf.st_mtime));
+    }
+    closedir(dp);
+    sprintf(fbuf,"%s</table></body></html>\r\n", fbuf);
+    char buf[MAXLINE] = {0};
+    sprintf(buf, "HTTP/1.0 200 OK\r\n");
+    sprintf(buf, "%sServer: The Web Server\r\n", buf);
+    sprintf(buf, "%sContent-Tength: %lu\r\n", buf, strlen(buf));
+    sprintf(buf, "%sContent-Type: %s\r\n\r\n", buf, "text/html");
+    rio_writen(fd, buf, strlen(buf));
+    rio_writen(fd, fbuf, strlen(fbuf));
 }
 void static_serve(int fd, char *filename, int filesize) 
 {
