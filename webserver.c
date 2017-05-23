@@ -66,7 +66,8 @@ int main(int argc, char* argv[])
             perror("Connect Error");
             exit(1);
         }
-        printf("Accepted connection from (%s:%s)\n", inet_ntoa(clientaddr.sin_addr), argv[1]);
+        char addr[INET_ADDRSTRLEN];
+        printf("Accepted connection from (%s:%s)\n", inet_ntop(AF_INET, &clientaddr.sin_addr, addr, INET_ADDRSTRLEN), argv[1]);
         //处理连接请求
         work(connfd);
         close(connfd);
@@ -275,7 +276,7 @@ void serve_dir(int fd, char *dirpath)
         struct stat sbuf;
         stat(filepath, &sbuf);
         sprintf(fbuf,"%s<tr><td><a href=%s%s>%s</a></td><td>%ld</td><td>%s</td></tr>\r\n",
-                fbuf, dir, dirp->d_name, dirp->d_name, sbuf.st_size, ctime(&sbuf.st_mtime));
+                fbuf, dir, dirp->d_name, dirp->d_name, sbuf.st_size, ctime_r(&sbuf.st_mtime));
     }
     closedir(dp);
     sprintf(fbuf,"%s</table></body></html>\r\n", fbuf);
