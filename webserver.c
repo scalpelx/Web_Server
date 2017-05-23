@@ -14,6 +14,7 @@
 #include <netinet/in.h>
 #include "common.h"
 
+void* thread(void *vargp);
 void work(int fd);
 void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 void read_get_requesthdrs(rio_t *rp);
@@ -23,6 +24,8 @@ void serve_dir(int fd,char *dirpath);
 void static_serve(int fd, char *filename, int filesize);
 void get_filetype(char *filename, char *filetype);
 void dynamic_serve(int fd, char *filename, char *cgiargs);
+
+sbuf_t sbuf; //缓冲区
 
 int main(int argc, char* argv[]) 
 {
@@ -56,6 +59,15 @@ int main(int argc, char* argv[])
         perror("Listen Error");
         exit(1);
     }
+    sbuf_init(&sbuf, SBUFSIZE); //初始化缓冲区
+    pthread_t tid;
+    //创建线程
+    for (int i = 0; i < NTHREADS; ++i)
+        if (pthread_create(&tid, NULL, thread, NULL) != 0) 
+        {
+            perror("Create pthread error");
+            exit(1);
+        }
     while (true) 
     {
         socklen_t clientlen = sizeof(clientaddr);
@@ -68,11 +80,28 @@ int main(int argc, char* argv[])
         }
         char addr[INET_ADDRSTRLEN];
         printf("Accepted connection from (%s:%s)\n", inet_ntop(AF_INET, &clientaddr.sin_addr, addr, INET_ADDRSTRLEN), argv[1]);
+        sbuf_insert(&sbuf, connfd); //将当前已连接套接字添加到缓存中
+    }
+    sbuf_destroy(&sbuf);
+}
+
+void* thread(void *vargp)
+{
+    if (thread_detach(pthread_self()) != 0)  //分离当前线程
+    {
+        perror("Detach pthread error");
+        exit(1);
+    }
+    while (true)
+    {
+        int connfd = sbuf_remove(&sbuf);  //从缓存中取可连接的套接字
         //处理连接请求
         work(connfd);
         close(connfd);
     }
+    return NULL;
 }
+
 void work(int fd) 
 {
     char buf[MAXLINE] = {0};
@@ -138,6 +167,7 @@ void work(int fd)
         dynamic_serve(fd, filename, cgiargs);
     }
 }
+
 //发送HTTP响应来解释错误，将状态码和状态消息发送给客户
 void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) 
 {
@@ -173,6 +203,7 @@ void print_error(int fd, char *cause, char *errnum, char *shortmsg, char *longms
         exit(-1);
     }
 }
+
 void read_get_requesthdrs(rio_t *rp) 
 {
     char buf[MAXLINE];
@@ -191,6 +222,7 @@ void read_get_requesthdrs(rio_t *rp)
         printf("%s", buf);
     }
 }
+
 void read_post_requesthdrs(rio_t *rp, char *content)
 {
     char buf[MAXLINE];
@@ -223,6 +255,7 @@ void read_post_requesthdrs(rio_t *rp, char *content)
     content[contentlength] = '\0';
     puts(content);
 }
+
 bool analyse_uri(char *uri, char *filename, char *cgiargs) 
 {
     //默认可执行文件主目录为cgi
@@ -250,6 +283,8 @@ bool analyse_uri(char *uri, char *filename, char *cgiargs)
         return false;
     }
 }
+
+//目录显示
 void serve_dir(int fd, char *dirpath)
 {  
     char *p = strrchr(dirpath, '/');
@@ -288,6 +323,8 @@ void serve_dir(int fd, char *dirpath)
     rio_writen(fd, buf, strlen(buf));
     rio_writen(fd, fbuf, strlen(fbuf));
 }
+
+//静态服务
 void static_serve(int fd, char *filename, int filesize) 
 {
     char buf[MAXLINE] = {0}, filetype[MAXLINE] = {0};
@@ -329,6 +366,8 @@ void static_serve(int fd, char *filename, int filesize)
     //释放虚拟内存
     munmap(srcp, filesize);
 }
+
+//获取文件类型
 void get_filetype(char *filename, char *filetype) 
 {
     if (strstr(filename, ".html"))
@@ -342,6 +381,8 @@ void get_filetype(char *filename, char *filetype)
     else
         strcpy(filetype, "text/plain");
 }
+
+//动态服务
 void dynamic_serve(int fd, char *filename, char *cgiargs) 
 {
     char buf[MAXLINE] = {0}, *emptylist[] = {NULL};
