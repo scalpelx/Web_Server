@@ -17,7 +17,4 @@
 
 可以用Telnet或者浏览器访问相关地址，如127.0.0.1:8080，动态服务的执行目录位于cgi
 
-## TODO
-
-1. HTTPS
-2. HTTP/2.0
+更多信息可以访问我的[网站](http://scalpel.vip/2017/05/24/webserver)
