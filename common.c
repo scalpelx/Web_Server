@@ -139,7 +139,7 @@ void sbuf_init(sbuf_t *sp, int cnt)
     }
 }
 
-void sbuf_destory(sbuf_t *sp)
+void sbuf_destroy(sbuf_t *sp)
 {
     free(sp->buf);
 }

@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <pthread.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -87,7 +88,7 @@ int main(int argc, char* argv[])
 
 void* thread(void *vargp)
 {
-    if (thread_detach(pthread_self()) != 0)  //分离当前线程
+    if (pthread_detach(pthread_self()) != 0)  //分离当前线程
     {
         perror("Detach pthread error");
         exit(1);
@@ -259,7 +260,7 @@ void read_post_requesthdrs(rio_t *rp, char *content)
 bool analyse_uri(char *uri, char *filename, char *cgiargs) 
 {
     //默认可执行文件主目录为cgi
-    if (!strstr(uri, "cgi") || !strstr(uri, "?")) //静态内容
+    if (!strstr(uri, "cgi")) //静态内容
     {
         strcpy(cgiargs, ""); //清空参数字符串
         strcpy(filename, ".");
@@ -310,8 +311,10 @@ void serve_dir(int fd, char *dirpath)
         sprintf(filepath, "%s/%s", dirpath, dirp->d_name);
         struct stat sbuf;
         stat(filepath, &sbuf);
+        char mtime[26] = {0};
+        ctime_r(&sbuf.st_mtime, mtime);
         sprintf(fbuf,"%s<tr><td><a href=%s%s>%s</a></td><td>%ld</td><td>%s</td></tr>\r\n",
-                fbuf, dir, dirp->d_name, dirp->d_name, sbuf.st_size, ctime_r(&sbuf.st_mtime));
+                fbuf, dir, dirp->d_name, dirp->d_name, sbuf.st_size, mtime);
     }
     closedir(dp);
     sprintf(fbuf,"%s</table></body></html>\r\n", fbuf);

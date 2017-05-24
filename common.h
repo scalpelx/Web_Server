@@ -33,7 +33,7 @@ ssize_t	rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen);
 ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n);
 
 void sbuf_init(sbuf_t *sp, int cnt);
-void sbuf_destory(sbuf_t *sp);
+void sbuf_destroy(sbuf_t *sp);
 void sbuf_insert(sbuf_t *sp, int item);
 int sbuf_remove(sbuf_t *sp);
 
